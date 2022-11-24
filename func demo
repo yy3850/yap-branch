@@ -1,0 +1,222 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"github.com/gin-gonic/gin"
+	_ "github.com/go-sql-driver/mysql"
+	"strings"
+)
+// database
+const (
+	userName = "*"
+	password = "*"
+	ip = "*"
+	port = "*"
+	dbName = "*"
+)
+
+var DB *sql.DB
+//  connect database
+func initDB() {
+	// connect："name:pwd@tcp(IP:)charset=utf8"
+	path := strings.Join([]string{userName, ":", password, "@tcp(",ip, ":", port, ")/", dbName, "?charset=utf8"}, "")
+	// open db
+	DB,_ = sql.Open("mysql",path)
+	// max connect
+	DB.SetConnMaxLifetime(100)
+	// 
+	DB.SetMaxIdleConns(10)
+	// test
+	if err := DB.Ping(); err != nil {
+		fmt.Println("connect database fail")
+		return
+	}
+	fmt.Println("connect database success")
+}
+// User
+type User struct {
+	id int //id
+	username string 
+	password string 
+	tel string 
+}
+type passWd struct {
+	password string
+}
+// @userLogin
+func userLogin(c *gin.Context) {
+	userName := c.Request.URL.Query().Get("username")
+	passWord := c.Request.URL.Query().Get("password")
+	//switch
+	rows,err := DB.Query("SELECT * FROM voro_user")
+	if err != nil {
+		fmt.Println("Find fail")
+	}
+	var s User
+	for rows.Next() {
+		err = rows.Scan(&s.id, &s.username, &s.password, &s.tel)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+	if userName != s.username {
+		// no the user
+		c.JSON(200,gin.H{
+			"success":false,
+			"code":400,
+			"msg":"no the user",
+		})
+	} else {
+		// get the password
+		us,_ := DB.Query("SELECT password FROM voro_user where username='" + userName + "'")
+		for us.Next(){
+			var u passWd
+			err = us.Scan(&u.password)
+			if err != nil {
+				fmt.Println(err)
+			}
+			// password true or false
+			if passWord != u.password{
+				c.JSON(200,gin.H{
+					"success":false,
+					"code":400,
+					"msg":"wrong password",
+				})
+			} else {
+				c.JSON(200,gin.H{
+					"success":true,
+					"code":200,
+					"msg":"login successful",
+				})
+			}
+		}
+	}
+	rows.Close()
+}
+
+// @userRegister
+func userRegister(c *gin.Context){
+	userName := c.Request.URL.Query().Get("username")
+	passWord := c.Request.URL.Query().Get("password")
+	userTel := c.Request.URL.Query().Get("tel")
+	//switch men7
+	rows,err := DB.Query("SELECT * FROM voro_user")
+	if err != nil {
+		fmt.Println("find error")
+	}
+	//return
+	for rows.Next() {
+		var s User
+		err = rows.Scan(&s.id,&s.username,&s.password,&s.tel)
+		if err != nil{
+			fmt.Println(err)
+		}
+		fmt.Println(s.username)
+		if userName != s.username{
+			// run import
+			result, err := DB.Exec("INSERT INTO voro_user(username,password,tel)VALUES (?,?,?)",userName,passWord,userTel)
+			if err != nil {
+				fmt.Println("run fail")
+				return
+			} else {
+				rows,_ := result.RowsAffected()
+				if rows != 1 {
+					c.JSON(200,gin.H{
+						"success":false,
+					})
+				} else {
+					c.JSON(200,gin.H{
+						"success":true,
+						"username":userName,
+						"tel":userTel,
+					})
+				}
+			}
+		} else {
+			fmt.Println("username already register")
+			c.JSON(200,gin.H{
+				"code":400,
+				"success":false,
+				"msg":"Username already register",
+			})
+		}
+	}
+	rows.Close()
+}
+// @forgetPassword
+func forgetPassword(c *gin.Context){
+	userName := c.Request.URL.Query().Get("username")
+	newPassWord := c.Request.URL.Query().Get("newPassWord")
+	userTel := c.Request.URL.Query().Get("tel")
+	//find menu
+	rows,err := DB.Query("SELECT * FROM voro_user")
+	if err != nil {
+		fmt.Println("find false")
+	}
+	var s User
+	for rows.Next() {
+		err = rows.Scan(&s.id, &s.username, &s.password, &s.tel)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+	if userName != s.username {
+		// no the user
+		c.JSON(200, gin.H{
+			"success": false,
+			"code":    400,
+			"msg":     "no the user",
+		})
+	} else {
+		// get the user phonenum
+		us,_ := DB.Query("SELECT tel FROM voro_user where username='" + userName + "'")
+		for us.Next(){
+			var m User
+			err = us.Scan(&m.tel)
+			if err != nil {
+				fmt.Println(err)
+			}
+			// phonenum T/False
+			if userTel != m.tel{
+				c.JSON(200,gin.H{
+					"success":false,
+					"code":400,
+					"msg":"phone_test_false",
+				})
+			} else {
+				results,err:=DB.Exec("UPDATE voro_user SET password='" + newPassWord + "' where username='" + userName + "' and tel='" + userTel + "'")
+				if err != nil {
+					fmt.Println(err)
+				}
+				aff_count,_ := results.RowsAffected()
+				if aff_count != 0{
+					c.JSON(200,gin.H{
+						"success":true,
+						"code":200,
+						"msg":"Upload password successful",
+					})
+				} else {
+					c.JSON(200,gin.H{
+						"success":false,
+						"code":400,
+						"msg":"Upload password false",
+					})
+				}
+			}
+		}
+	}
+	rows.Close()
+}
+
+func main(){
+	initDB()
+	router := gin.Default()
+	user := router.Group("/user")
+	{
+		user.POST("/login",userLogin)
+		user.POST("/register",userRegister)
+		user.POST("/forgetpassword",forgetPassword)
+	}
+	router.Run(":9000")
+}
